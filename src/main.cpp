@@ -1,12 +1,47 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
-//#include <avr/signal.h>
 #include <util/delay.h>
 #include "timerISR.h"
 #include "serialATmega.h"
-#include "scheduler.h"
+
+#define DISPLAY_DELAY  500
+/*global variable*/
+int count = 0;
+int delay = 0 ;
+int delay_counter;
+
+bool locked_state = true ; // start with locked 
+bool update_state = false ;
+void outNum(int num) ;
 
 
+void rotateLock(int direction) {
+    int phases[8] = {0b0001, 0b0011, 0b0010, 0b0110, 0b0100, 0b1100, 0b1000, 0b1001}; //8 phases of the stepper motor step
+    DDRB = 0xFF; PORTB = 0x00; //sets all of port b as outputs even though we are only using pins 2-5(digital pins 10-13)(stepper motor)
+    
+    int i = 0;
+    int j = 1028 ;
+    while (j)
+    {
+        if(direction){//button not pressed
+            PORTB = (PORTB & 0x03) | phases[i] << 2;//& first to reset pins 2-5 but not 0-1 then | with phase shifted left 2 to assign the right value to pins 2-5
+            i++;//increment to next phase
+            if(i>7){ //if all phases are completed, restart
+                i = 0;
+            }
+        }else{
+            PORTB = (PORTB & 0x03) | phases[i] << 2;
+            i--;
+            if(i<0){
+                i = 8;
+            }
+        }
+        _delay_ms(1);
+        j-- ;
+    }
+
+
+}
 unsigned char SetBit(unsigned char x, unsigned char k, unsigned char b) {
    return (b ?  (x | (0x01 << k))  :  (x & ~(0x01 << k)) );
               //   Set bit to 1           Set bit to 0
@@ -26,6 +61,8 @@ void ADC_init() {
 	//        the previous conversion completes.
 }
 
+
+
 unsigned int ADC_read(unsigned char chnl){
   uint8_t low, high;
 
@@ -33,166 +70,221 @@ unsigned int ADC_read(unsigned char chnl){
   ADCSRA |= 1 << ADSC ;
   while((ADCSRA >> ADSC)&0x01){}
 
+
 	low  = ADCL;
 	high = ADCH;
 
 	return ((high << 8) | low) ;
 }
 
-void init_sonar(){
-  sei();			/* Enable global interrupt */
-	TIMSK1 = (1 << TOIE1);	/* Enable Timer1 overflow interrupts */
-	TCCR1A = 0;
-  
-}
 
-double read_sonar(){
-    long count;
-    PORTC = SetBit(PORTC,2,1);
-    _delay_us(10);
-    PORTC = SetBit(PORTC,2,0);
-
-    TCNT1 = 0;	/* Clear Timer counter */
-		TCCR1B = 0x41;	/* Capture on rising edge, No prescaler*/
-		TIFR1 = 1<<ICF1;	/* Clear ICP flag (Input Capture flag) */
-		TIFR1 = 1<<TOV1;	/* Clear Timer Overflow flag */
-
-		/*Calculate width of Echo by Input Capture (ICP) */
-		while ((TIFR1 & (1 << ICF1)) == 0);/* Wait for rising edge */
-		TCNT1 = 0;	/* Clear Timer counter */
-		TCCR1B = 0x01;	/* Capture on falling edge, No prescaler */
-		TIFR1 = 1<<ICF1;	/* Clear ICP flag (Input Capture flag) */
-		TIFR1 = 1<<TOV1;	/* Clear Timer Overflow flag */
-		TimerOverflow = 0;/* Clear Timer overflow count */
-		while ((TIFR1 & (1 << ICF1)) == 0);/* Wait for falling edge */
-		count = ICR1 + (65535 * TimerOverflow);	/* Take count */
-		
-		return((double)count / 932.46);
-}
-
- 
 int nums[16] = {0b1111110, 0b0110000, 0b1101101, 0b1111001, 0b0110011, 0b1011011, 0b1011111, 0b1110000, 0b1111111, 0b1111011, 0b1110111, 0b0011111, 0b1001110, 0b0111101, 0b1001111, 0b1000111 }; 
 // a  b  c  d  e  f  g
-
 void outNum(int num){
-	PORTD = nums[num] << 1;
-  PORTB = SetBit(PORTB, 1 ,nums[num]&0x01);
+	PORTD = nums[num] << 1; //assigns bits 1-7 of nums(a-f) to pins 2-7 of port d
+  PORTB = SetBit(PORTB, 0 ,nums[num]&0x01); // assigns bit 0 of nums(g) to pin 0 of port b
 }
 
-//TODO: create all global varibles needed for tasks to comunicate
-int distance = 4 ;
-
-
-//TODO:create enum and Tick function for each task
-//Reminder that they will need different names for each task
-//unsigned long int findGCD(unsigned long int a, unsigned long int b) ;
-enum displayStates{INITDISP}; //TODO: fill out with rest of states for display task 
-
-int Tick_display1(int state){
-
-  distance = read_sonar() ;
-  //char buf[50] ;
- // sprintf(buf, "%s\n", distance) ;
-  //serial_println(distance);
-  switch(state){
-
-    default:
-
-      break;
-
-  }
-  switch(state){
-    
-    default:
-      
-      break;
-
-  }
-
-  return state;
+//directions[] and outDir() will be neeeded for ex 2 and 3
+int directions[4] = {0b0111110, 0b0111101, 0b0000101, 0b0001110}; //TODO: copmlete the array containg the values needed for the 7 sgements for each of the 4 directions
+// a  b  c  d  e  f  g
+//TODO: display the direction to the 7-seg display. HINT: will be very similar to outNum()
+void outDir(int dir){
+  PORTD = directions[dir] << 1; //assigns bits 1-7 of nums(a-f) to pins 2-7 of port d
+  PORTB = SetBit(PORTB, 0 ,directions[dir]&0x01); // assigns bit 0 of nums(g) to pin 0 of port b
 }
 
-int Tick_display2(int state){
-  outNum(distance) ;
-  switch(state){
+int phases[8] = {0b0001, 0b0011, 0b0010, 0b0110, 0b0100, 0b1100, 0b1000, 0b1001}; //8 phases of the stepper motor step
 
-    default:
+enum states { UP, DOWN, RIGHT, LEFT, INIT, IDLE, REMAIN_UP, REMAIN_DOWN, REMAIN_RIGHT, REMAIN_LEFT, LOCK, CHECK_LOCK, UNLOCK, WRONG_P, UPDATE_P, RESET, TIMER} state; //TODO: finish the enum for the SM
+int passcode[4] = {UP, UP, RIGHT, LEFT};
+int entered_passcode[4] = {0, 0, 0, 0};
+int prev_state = IDLE ;
 
-      break;
-
-  }
-  switch(state){
-    
-    default:
-      
-      break;
-
-  }
-
-  return state;
+void update_passcode(int location, int pstate)
+{
+    passcode[location] = pstate ;
 }
 
+void Tick() {
+  // State Transistions
+  if(state == TIMER) { 
+        delay_counter--;
+        if (!delay_counter) {
+            if(count == 4){
+                state = CHECK_LOCK;
+            }
+            else {
+                count++;
+                outNum(count);
+                state = IDLE;
+            }
+        }
+        return;
+  }
+  
+  switch(state) {
+    case INIT:
+      outNum(count);
+      state = IDLE;
+      break;
+    case IDLE:
+      if((PINC >> 2 & 0x01) == 0) state = UPDATE_P; 
+      else if(ADC_read(0) > 950) state = UP;
+      else if(ADC_read(0) < 100) state = DOWN;
+      else if(ADC_read(1) > 950) state = RIGHT;
+      else if(ADC_read(1) < 100) state = LEFT;
+      break;
+    case UP:
+      if(ADC_read(0) <= 950) state = IDLE; 
+      else state = REMAIN_UP;
+      break;
+    case DOWN:
+      if(ADC_read(0) >= 100) state = IDLE;
+      else state = REMAIN_DOWN; 
+      break;
+    case RIGHT:
+      if(ADC_read(1) <= 950) state = IDLE; 
+      else state = REMAIN_RIGHT;
+      break;
+    case LEFT:
+      if(ADC_read(1) >= 100) state = IDLE;
+      else state = REMAIN_LEFT;
+      break;
+    case REMAIN_UP:
+      if(ADC_read(0) <= 950) state = IDLE;
+      break;
+    case REMAIN_DOWN:
+      if(ADC_read(0) >= 100) state = IDLE;
+      break;
+    case REMAIN_RIGHT:
+      if(ADC_read(1) <= 950) state = IDLE;
+      break;
+    case REMAIN_LEFT:
+      if(ADC_read(0) >= 100) state = IDLE;
+      break;
+    case LOCK:
+      break;
+    case UPDATE_P: 
+        {
+            if (!locked_state) {
+                PORTC = SetBit(PORTC, 4, 1); // light up the LED
+                update_state = true ;
+            }
+            state = IDLE ;
+        }
+        break ;
+    case CHECK_LOCK:
+       {
+            if (update_state ) {
+                state = IDLE ;
+                update_state = false;
+                PORTC = SetBit(PORTC, 4, 0); // off
+                count = 0;
+                locked_state = true ;
+                outNum(count);
+                
+            }
+            else {
+                int bGood = true ;
+                //password check
+                for(int i = 0; i < 4; i++) {
+                    if(passcode[i] != entered_passcode[i]) {
+                        count = 0;
+                        outNum(count);
+                        bGood = false ;
+                        state = WRONG_P ;
+                        break; 
+                    }
+                }
+                if (bGood ) {
+                    if (locked_state )
+                        state = UNLOCK; 
+                    else 
+                        state = LOCK ;
+                }
+                count = 0;
+                outNum(count);
+            }
+       }
+      break ;
+    case UNLOCK:
+      break;
+    case RESET:
+      state = IDLE; break;
+    default:
+      state = INIT;
+      break;
+  }
 
+  // State Actions
+  switch(state) {
+    case INIT:
+      break;
+    case IDLE:
+      if (locked_state)
+        PORTC = SetBit(PORTC, 5, 1);
+      else
+        PORTC = SetBit(PORTC, 5, 0);
+      break;
+    case UP:
+    case DOWN:
+    case RIGHT:
+    case LEFT:
+        outDir(state);
+        if( update_state ) 
+            update_passcode(count, state);
+        else 
+            entered_passcode[count] = state;
+        delay_counter = DISPLAY_DELAY;
+        state = TIMER; 
+        break;
+    case REMAIN_UP:
+    case REMAIN_DOWN:
+    case REMAIN_RIGHT:
+    case REMAIN_LEFT:
+      break;
+    case LOCK:
+      locked_state = true ;
+      rotateLock(1);  //clockwise
+      state = INIT ;
+      break;
+    case UNLOCK:
+      locked_state = false ;
+      rotateLock(0);  //anti-clockwise
+    case WRONG_P:
+      state = INIT ;
+      break;
+    case CHECK_LOCK:
+      break;
+    case RESET:
+      outNum(count);
+      count = 0;
+      break;
+    default:
+      break;
+  }
+  if(count == 4) {
+    delay_counter = DISPLAY_DELAY;
+    state = TIMER;
+  }    
+}
 
 int main(void)
 {
-  DDRD = 0xFF ;
-  DDRB = 0xFF ;
-  DDRC = 0x00 ;
-  //TODO: initialize all your inputs and ouputs
-  serial_init(9600);
-  ADC_init();//initializes ADC
-  init_sonar();//initializes sonar
-
-  //TODO: set all the variables for GCD calcualtions(task periods)
-  unsigned long int Tick_display_calc1 = 1000;//display period
-  unsigned long int Tick_display_calc2 = 1 ;//display period
-  //unsigned long int //task2 period
-
-  unsigned long int tmpGCD = findGCD(Tick_display_calc1, Tick_display_calc2);
-  unsigned long int GCD = tmpGCD;
-
-  //TODO: set all variable for how many timer interupts needed before task needs to tick
-  //Recalculate GCD periods for scheduler
-  unsigned long int Tick_display_period1 = Tick_display_calc1/GCD;
-  unsigned long int Tick_display_period2 = Tick_display_calc2/GCD;
-
-  static task task1;
-  static task task2 ;
-
-  task *tasks[] = {&task1, &task2};//TODO: fill out the task array with task variables
-  const unsigned short numTasks = sizeof(tasks)/sizeof(task*);
-
-  //TODO: initilaize the task variables
-  // Task 1
-  task1.state = -1;//Task initial state.
-  task1.period = Tick_display_period1;//Task Period.
-  task1.elapsedTime = Tick_display_period1;//Task current elapsed time.
-  task1.TickFct = &Tick_display1;//Function pointer for the tick.
-
-  // Task 2
-  task2.state = -1;//Task initial state.
-  task2.period = Tick_display_period2;//Task Period.
-  task2.elapsedTime = Tick_display_period2;//Task current elapsed time.
-  task2.TickFct = &Tick_display2;//Function pointer for the tick.
-
-  TimerSet(GCD);
-  TimerOn();
-  while (1)
-  {
-    for ( unsigned int i = 0; i < numTasks; i++ ) {
-    // Task is ready to tick
-      if ( tasks[i]->elapsedTime == tasks[i]->period ) {
-        // Setting next state for task
-        tasks[i]->state = tasks[i]->TickFct(tasks[i]->state);
-        // Reset the elapsed time for next tick.
-        tasks[i]->elapsedTime = 0;
-      }
-      tasks[i]->elapsedTime += 1;
+    DDRB = 0xFF; PORTB = 0x00; //sets all of port b as outputs even though we are only using pins 2-5(digital pins 10-13)(stepper motor)
+    DDRD = 0xFF; PORTD = 0x00;
+    DDRC = 0x30; PORTC = 0xF; //decimal point
+    serial_init(9600);
+    ADC_init();//initializes the analog to digital converter
+    state = INIT;
+    TimerSet(1); //period of 1 ms. good period for the stepper mottor
+    TimerOn();
+    while (1)
+    {
+        Tick();      // Execute one synchSM tick
+        while (!TimerFlag){}
+        TimerFlag = 0; //Wait for SM period, Lower flag
     }
-    
-    while(!TimerFlag);
-    TimerFlag = 0;
-  }
-  return 0;
+    return 0;
 }
